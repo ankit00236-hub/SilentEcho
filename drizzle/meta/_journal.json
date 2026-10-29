@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793093282860,
+      "tag": "0000_ambiguous_warlock",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793249671342,
+      "tag": "0001_unusual_risque",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793267876986,
+      "tag": "0002_gorgeous_next_avengers",
+      "breakpoints": true
+    }
+  ]
+}

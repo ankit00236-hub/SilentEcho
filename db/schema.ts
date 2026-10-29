@@ -1,0 +1,11 @@
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+export const organisations = sqliteTable('organisations', { id: text('id').primaryKey(), name: text('name').notNull(), kind: text('kind').notNull(), owner: text('owner').notNull(), inviteHash: text('invite_hash').notNull(), created: text('created').notNull() });
+export const members = sqliteTable('members', { id: text('id').primaryKey(), org: text('org').notNull().references(()=>organisations.id), account: text('account').notNull() }, table=>[uniqueIndex('members_org_account_unique').on(table.org,table.account)]);
+// owner is a secret-keyed HMAC reference, never a raw account ID, name, or email.
+export const cases = sqliteTable('cases', { id: text('id').primaryKey(), owner: text('owner').notNull(), org: text('org').notNull().references(()=>organisations.id), content: text('content').notNull(), category: text('category').notNull(), priority: text('priority').notNull(), status: text('status').notNull(), created: text('created').notNull(), updated: text('updated').notNull() });
+export const events = sqliteTable('events', { id: text('id').primaryKey(), caseId: text('case_id').notNull().references(()=>cases.id), kind: text('kind').notNull(), actor: text('actor').notNull(), content: text('content').notNull(), created: text('created').notNull() });
+export const evidence = sqliteTable('evidence', { id: text('id').primaryKey(), caseId: text('case_id').notNull().references(()=>cases.id), metadata: text('metadata').notNull(), size: integer('size').notNull() });
+// No name, email, or readable sign-in ID is collected for private accounts.
+export const privateAccounts = sqliteTable('private_accounts', { id: text('id').primaryKey(), loginHash: text('login_hash').notNull().unique(), owner: text('owner').notNull().unique(), created: text('created').notNull() });
+export const privateSessions = sqliteTable('private_sessions', { tokenHash: text('token_hash').primaryKey(), account: text('account').notNull().references(()=>privateAccounts.id), expires: integer('expires').notNull() });
+export const authLimits = sqliteTable('auth_limits', { bucket: text('bucket').primaryKey(), count: integer('count').notNull(), expires: integer('expires').notNull() });

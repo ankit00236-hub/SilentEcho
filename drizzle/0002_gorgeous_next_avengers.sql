@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `members_org_account_unique` ON `members` (`org`,`account`);
