@@ -1,0 +1,20 @@
+# Server secrets and local runtime data must never enter a source upload.
+.env*
+.dev.vars*
+*.pem
+.local
+.wrangler
+.sites-runtime
+.vercel
+.vinext
+.next
+dist
+out
+outputs
+work
+coverage
+node_modules
+.agents
+.codex
+.git
+*.tsbuildinfo
