@@ -1,20 +1,14 @@
-import { env } from 'cloudflare:workers';
+import { storageKey, requestAddress } from '@/lib/platform';
 import { eq, and, gt, lt, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { authLimits, privateAccounts, privateSessions, organisations, members } from '../db/schema';
 import { fingerprint } from './crypto';
 import { newSignInId, ownerReference, sessionReference, signInReference, validSignInId } from './private-identity';
+export { checkOrigin } from './request-security';
 
 const cookieName = 'silentecho_session';
 const sessionLifetime = 7 * 24 * 60 * 60;
-export function storageKey() {
-  const key = (env as typeof env & { DATA_KEY?: string }).DATA_KEY;
-  if (!key) throw new Error('503:Secure storage is not configured');
-  return key;
-}
-export function checkOrigin(request: Request) {
-  if (request.headers.get('origin') !== new URL(request.url).origin) throw new Error('403:Request origin rejected');
-}
+export { storageKey };
 function sessionCookie(request: Request) {
   const values = (request.headers.get('cookie') ?? '').split(';').map(s => s.trim()).filter(s => s.startsWith(cookieName + '='));
   if (!values.length) return null;
@@ -47,7 +41,7 @@ export async function endSession(request: Request, key: string) {
 export async function limitAuth(request: Request, key: string) {
   const now = Date.now(), window = Math.floor(now / 900_000);
   // Store neither the network address nor a readable account credential.
-  const address = request.headers.get('cf-connecting-ip') ?? 'local';
+  const address = requestAddress(request);
   const bucket = await fingerprint(`auth-window:${window}:${address}`, key);
   const db = getDb();
   const [row] = await db.insert(authLimits).values({ bucket, count: 1, expires: (window + 1) * 900_000 }).onConflictDoUpdate({ target: authLimits.bucket, set: { count: sql`${authLimits.count} + 1` } }).returning({ count: authLimits.count });

@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 const base=process.env.TEST_URL||'http://127.0.0.1:4173';
-async function call(path,user,method='GET',body){const r=await fetch(base+'/api/'+path,{method,headers:{...(user?{'oai-authenticated-user-id':user,'oai-authenticated-user-email':user+'@example.test'}:{}),origin:base,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined});let data;try{data=await r.json();}catch{data=null;}return {status:r.status,data};}
+if(!['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname))throw Error('Run only against an isolated local test server.');
+const cookies=new Map(),credentials=[];
+async function call(path,user,method='GET',body){const r=await fetch(base+'/api/'+path,{method,headers:{...(user?{cookie:cookies.get(user)}:{}),origin:base,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined});let data;try{data=await r.json();}catch{data=null;}return {status:r.status,data};}
 const suffix=crypto.randomUUID(),staff='staff-'+suffix,reporter='reporter-'+suffix,stranger='stranger-'+suffix;
+for(const user of [staff,reporter,stranger]){
+ const response=await fetch(base+'/api/auth',{method:'POST',headers:{origin:base,'Content-Type':'application/json'},body:JSON.stringify({action:'register',workspace:'personal'})});
+ assert.equal(response.status,201);credentials.push((await response.json()).signInId);cookies.set(user,response.headers.getSetCookie().map(value=>value.split(';')[0]).join('; '));
+}
 assert.equal((await call('workspace',null)).status,401);
 const org=await call('workspace',staff,'POST',{action:'create',name:'Test institution '+suffix,kind:'Educational institution'});assert.equal(org.status,201);assert.ok(org.data.invite);
 const created=await call('cases',reporter,'POST',{org:org.data.id,title:'Confidential test complaint',description:'This is a detailed report for an isolated integration test of the reporting workflow.',category:'Other',priority:'Moderate'});assert.equal(created.status,201);const id=created.data.id;
@@ -21,7 +27,7 @@ for(const status of ['Under review','In progress']){
 assert.equal((await call('cases/'+id,staff,'POST',{action:'update',status:'Resolved',category:'Other',priority:'Low',note:'We reviewed the report and documented the resolution.'})).status,200);
 const form=new FormData();form.set('file',new File(['encrypted evidence content'],'test.txt',{type:'text/plain'}));const upload=await call('cases/'+id+'/evidence',reporter,'POST',form);assert.equal(upload.status,201);
 assert.equal((await call('cases/'+id+'/evidence/'+upload.data.id,stranger)).status,404);
-const downloaded=await fetch(base+'/api/cases/'+id+'/evidence/'+upload.data.id,{headers:{'oai-authenticated-user-id':staff,'oai-authenticated-user-email':staff+'@example.test'}});assert.equal(downloaded.status,200);assert.equal(await downloaded.text(),'encrypted evidence content');
+const downloaded=await fetch(base+'/api/cases/'+id+'/evidence/'+upload.data.id,{headers:{cookie:cookies.get(staff)}});assert.equal(downloaded.status,200);assert.equal(await downloaded.text(),'encrypted evidence content');
 const final=await call('cases/'+id,reporter);assert.equal(final.data.record.status,'Resolved');assert.equal(final.data.files.length,1);assert.ok(final.data.history.some(e=>e.content==='A private follow-up message.'));
 assert.equal((await call('workspace',stranger,'POST',{action:'join',code:crypto.randomUUID()})).status,400);
 assert.equal((await call('workspace',stranger,'POST',{action:'join',code:org.data.invite})).status,200);assert.equal((await call('cases/'+id,stranger)).status,200);
@@ -34,7 +40,7 @@ if(process.env.TEST_DB_PATH){
   assert.match(stored.owner,/^[A-Za-z0-9+/]{43}=$/,'Case ownership must be a keyed reference');
   const rows=[stored,...db.prepare('SELECT * FROM events WHERE case_id = ?').all(id),...db.prepare('SELECT * FROM evidence WHERE case_id = ?').all(id),...db.prepare('SELECT * FROM organisations WHERE id = ?').all(org.data.id),...db.prepare('SELECT * FROM members WHERE org = ?').all(org.data.id)];
   const storedText=JSON.stringify(rows);
-  for(const identity of [reporter,staff,stranger,reporter+'@example.test',staff+'@example.test',stranger+'@example.test'])assert.ok(!storedText.includes(identity),'Raw authenticated identity must not be stored');
+  for(const identity of [reporter,staff,stranger,...credentials,...cookies.values()])assert.ok(!storedText.includes(identity),'Raw authenticated identity must not be stored');
   for(const plaintext of ['Confidential test complaint','A private follow-up message.','We reviewed the report and documented the resolution.','test.txt'])assert.ok(!storedText.includes(plaintext),'Sensitive content must be encrypted at rest');
   assert.ok(db.prepare('SELECT actor FROM events WHERE case_id = ?').all(id).every(e=>['Reporter','Organisation'].includes(e.actor)));
   console.log('PASS: direct database inspection confirms pseudonymous ownership, role-only audit actors, encrypted content and no raw authenticated account IDs or emails.');

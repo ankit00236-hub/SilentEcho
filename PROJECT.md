@@ -1,12 +1,12 @@
 # SilentEcho
 
-Implementation based on the supplied SilentEcho research report. React frontend, Vinext server routes, Cloudflare D1 relational storage, R2 encrypted evidence, and private sign-in IDs. Hosted Sites identity remains supported for existing accounts.
+Implementation based on the supplied SilentEcho research report. React frontend, standard Next.js server routes, a shared Turso/libSQL database, private Vercel Blob encrypted evidence, and private sign-in IDs. The optional Sites runtime retains D1/R2 through a separate adapter; platform identity headers are never trusted on Vercel.
 
 ## Run
 
-Use Node 22.13+ (Node 26 recommended for the test scripts). Install with `npm run install:ci`. Add a local `.dev.vars` containing `DATA_KEY`, a base64-encoded random 32-byte key. Generate a separate local key with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Never commit it or replace the production key: existing records require that key to decrypt and authorise account references.
+Use Node 22.13+ in the Node 22 release line. Run `npm ci`, `npm run setup:local`, then `npm run dev`; open `http://localhost:5173`. Setup creates ignored local settings, an encryption key and a migrated libSQL database without replacing an existing `.env.local`. Local files live under `.local/`, separate from earlier Cloudflare previews. For the retained D1/R2 preview, see [docs/SITES.md](docs/SITES.md).
 
-Build with `npm run build`. Apply the generated migrations with the local D1 command in README.md. Then `npm run dev`. For a built preview, copy your local `.dev.vars` to `dist/server/.dev.vars` before `npm start`; remove that copy before packaging or deploying. The Wrangler built preview reads local secrets beside its generated config. Local development uses real private accounts and sessions; the shared test-account shortcut is disabled. Hosted Sites identity remains supported when supplied by the platform. Never expose a local preview as a production service.
+Build with `npm run build`, then preview with `npm start`. Deploy with [docs/VERCEL.md](docs/VERCEL.md): configure `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `BLOB_READ_WRITE_TOKEN` for a private store, and the stable 32-byte base64 `DATA_KEY`. `build:vercel` validates settings, applies tracked schema migrations and builds Next.js. No hosted account uses a local file fallback. Never rotate an existing data key or expose a local preview as a production service.
 
 ## Private accounts
 
@@ -14,13 +14,13 @@ The homepage `/` introduces SilentEcho’s objective, privacy approach, and the 
 
 Only an HMAC-SHA256 digest of the sign-in ID is stored in `private_accounts`, alongside a separate random account ID and keyed case-ownership reference. Sessions use independently generated random tokens; only their keyed digests are stored, with a seven-day absolute expiry. Cookies are HttpOnly, SameSite=Lax, and Secure on HTTPS. Sign-out revokes the current session. Authentication mutations enforce same-origin requests and a persisted limit of 30 attempts per network address per 15 minutes; the address is represented only by a keyed window digest. Existing case ownership and existing hosted accounts are not migrated or reassigned.
 
-Apply the new `drizzle/0001_unusual_risque.sql` migration after the original migration. Existing tables and case records are preserved. Keep `DATA_KEY` stable: replacing it breaks both sign-in and decryption for existing records. The service operator still controls the application and key, can see a sign-in ID when it is presented, and can correlate a private account's cases through their ownership reference. This does not promise operator-proof anonymity.
+`npm run db:migrate` applies pending migrations in order and preserves existing records. Keep `DATA_KEY` stable: replacing it breaks both sign-in and decryption for existing records. The service operator still controls the application and key, can see a sign-in ID when it is presented, and can correlate a private account's cases through their ownership reference. This does not promise operator-proof anonymity.
 
 ## Workflows
 
 - Personal workspace (`/personal`): choose New complaint, select an organisation, write the report, set category and urgency, and optionally attach evidence. Open cases with Track case to see the current stage, recorded stage dates, the latest organisation action, and the complete timeline. Use Check for updates to fetch new progress without closing the case. Return to My complaints using the same signed-in account; a Case ID alone never grants access. Exchange messages and upload more evidence from the same case view. Skipped stages are not marked complete, and reopened cases show the current stage while preserving their history.
 - Organisation workspace (`/organisation`): register an organisation, save its one-time-displayed invitation code, or join with an existing code. Members can review only their organisations' cases, change status/category/priority, and document actions. The sidebar links to each workspace. Overview, case lists (`/personal/cases`, `/organisation/cases`), and organisation directories (`/personal/organisations`, `/organisation/organisations`) have separate URLs that work on reload. Organisation cases remain restricted by server-side membership; choosing a workspace is not a grant of access.
-- The initial hosted site is owner-private. Sharing permissions must be explicitly configured before other people can sign in. Invitation codes grant application membership but do not bypass the hosting audience.
+- The public Vercel production URL must allow the intended audience under Deployment Protection. Invitation codes grant application membership but do not bypass hosting-level access restrictions.
 
 ## Security design and boundaries
 
@@ -28,7 +28,7 @@ Random UUID case identifiers are references, never credentials. Every case API c
 
 Case views, evidence downloads, submissions, messages, and changes create audit records. Mutations validate same-origin requests and bounded field/file inputs. Evidence downloads force attachment and disable MIME sniffing. API responses containing case data disable caching.
 
-This is pseudonymity, not perfect anonymity or end-to-end encryption. The operator controls the encryption key; account associations can be recomputed by the operator. Descriptions and file metadata may reveal identity. All invited organisation members have triage access to that organisation; granular assigned-handler roles are future work. Organisation registration is self-service and does not establish verified institutional affiliation. Keep invitation codes private; revocation/rotation and membership removal are not implemented in this first version. Before institutional rollout, implement those controls, retention/deletion policy, key backup/rotation, rate limiting, organisational verification, and independent security review.
+This is pseudonymity, not perfect anonymity or end-to-end encryption. The operator controls the encryption key; account associations can be recomputed by the operator. Descriptions and file metadata may reveal identity. All invited organisation members have triage access to that organisation; granular assigned-handler roles are future work. Organisation registration is self-service and does not establish verified institutional affiliation. Keep invitation codes private; administrators can replace invitations, but membership removal is not implemented. Retention/deletion policy, key rotation, organisational verification, and independent security review remain rollout considerations.
 
 ## Scope relative to the report
 
@@ -40,7 +40,7 @@ No trained AI classifier or performance claims are included: the research paper 
 
 `node --test scripts/crypto.test.mjs` verifies encryption round-trips, nonce uniqueness, wrong-key rejection, ciphertext tampering rejection, record-binding rejection, and keyed account-reference separation.
 
-`scripts/integration-test.mjs` exercises live backend isolation and a complete case workflow against a local built server using separate mock authenticated identities. Use only against an isolated local database.
+`npm run test:vercel` starts production Next.js servers against disposable local libSQL databases and encrypted file storage. It runs integration, team and private-authentication workflows and rejects forged platform identity headers. It does not verify remote Turso/Blob credentials.
 
 `node --test scripts/case-progress.test.mjs scripts/crypto.test.mjs` verifies actual recorded stages, direct resolution without invented intermediate progress, reopened cases, and storage cryptography. For an isolated built-server integration run, set `TEST_URL` to the local server and optionally `TEST_DB_PATH` to its local D1 SQLite file; the integration test then also inspects stored rows for raw authenticated identities and unencrypted report content. Never run mutation tests against production.
 
@@ -64,10 +64,10 @@ Teammates open `/organisation/join` and paste the organisation invitation into *
 
 ## Shared access across devices
 
-Every device must use the same hosted HTTPS URL and shared D1/R2 backend. A `127.0.0.1` URL only reaches the device opening it; separate development copies have separate data. Sign in with the same saved private ID to use the same account on another device. Teammates must use their own IDs and join through an invitation. Public website access does not grant access to private case data. Keep the hosted DATA_KEY stable.
+Every device must use the same hosted HTTPS URL and shared Turso/private-Blob backend (D1/R2 for the optional Sites runtime). A `127.0.0.1` URL only reaches the device opening it; separate development copies have separate data. Sign in with the same saved private ID to use the same account on another device. Teammates must use their own IDs and join through an invitation. Public website access does not grant access to private case data. Keep the hosted DATA_KEY stable.
 
 ## Clearing local data
 
-Stop the development server, run `npm run build`, then run `node scripts/reset-local-data.mjs --confirm-local-reset`. This deletes only `.wrangler/state`, including local accounts, sessions, organisations, memberships, cases, messages, and evidence, and recreates the schema with every migration. It preserves source, artwork, and `.dev.vars` and does not touch hosted storage. Do not use data-deletion statements in schema migrations.
+The retained `scripts/reset-local-data.mjs` applies only to the optional Cloudflare preview: stop that server, run `npm run build:sites`, then `node scripts/reset-local-data.mjs --confirm-local-reset`. It deletes only `.wrangler/state` and recreates the schema; it preserves source, artwork and `.dev.vars`. It never clears Turso, Blob or the new `.local/` data. No migration deletes existing users or organisations.
 
 `node --test scripts/team-invites.test.mjs` checks pasted-code normalisation and useful ID/code errors. `scripts/team-workflow-test.mjs` runs against an isolated local database and tests invitation joins, folder counts, independent sessions, updates, code replacement permissions, and sign-out.

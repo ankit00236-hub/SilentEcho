@@ -1,4 +1,3 @@
-import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { getDb } from '@/db';
 import { cases, members, organisations, events } from '@/db/schema';
@@ -6,10 +5,10 @@ import { eq, and } from 'drizzle-orm';
 import { fingerprint, seal, unseal } from './crypto';
 import { caseStages } from './case-progress';
 import { privateAccount, storageKey } from './private-auth';
-export const runtimeEnv = env as typeof env & { DATA_KEY?:string };
+import { checkOrigin } from './request-security';
 export async function context(request:Request) {
  if (!['GET','HEAD'].includes(request.method)) {
-  const origin=request.headers.get('origin'); if(!origin || origin!==new URL(request.url).origin) throw new Error('403:Request origin rejected');
+  checkOrigin(request);
  }
  const key=storageKey(),privateUser=await privateAccount(request,key);
  if(privateUser)return {db:getDb(),account:privateUser.owner,key};
